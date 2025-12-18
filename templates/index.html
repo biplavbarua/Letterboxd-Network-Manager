@@ -69,7 +69,10 @@
                 </button>
             </div>
             <div x-show="cookies_set" class="flex justify-between items-center text-sm">
-                <span class="text-green-400">Session Cookie Saved via LocalStorage. Ready to Follow.</span>
+                <div>
+                    <span class="text-green-400 block">Session Cookie Saved. Ready.</span>
+                    <span class="text-gray-500 text-xs">Daily Actions: <span x-text="dailyCount"></span>/50</span>
+                </div>
                 <button @click="clearCookies" class="text-red-400 hover:text-red-300 text-xs underline">Clear</button>
             </div>
         </div>
@@ -137,6 +140,8 @@
                 cookie_input: '',
                 cookies: '',
                 cookies_set: false,
+                dailyCount: 0,
+                dailyLimit: 50,
 
                 init() {
                     const saved = localStorage.getItem('lb_cookies');
@@ -144,6 +149,16 @@
                         this.cookies = saved;
                         this.cookies_set = true;
                     }
+                    this.fetchStats();
+                },
+
+                async fetchStats() {
+                    try {
+                        const res = await fetch('/api/stats');
+                        const data = await res.json();
+                        this.dailyCount = data.daily_count;
+                        this.dailyLimit = data.limit;
+                    } catch (e) { console.error(e); }
                 },
 
                 saveCookies() {
@@ -154,6 +169,8 @@
                         this.cookie_input = '';
                     }
                 },
+
+                // ... clearCookies ...
 
                 clearCookies() {
                     this.cookies = '';
@@ -180,15 +197,14 @@
                         if (data.status === 'success') {
                             this.users = data.mined_users.map(u => ({
                                 ...u,
-                                is_active: null, // Unknown initially
-                                followed: false
+                                is_active: null,
+                                followed: u.already_followed || false // Use backend flag
                             }));
                             this.message = '';
                             if (this.users.length === 0) {
                                 this.message = 'No active followers found (or scraper failed). Check server logs.';
                             }
-                            // Auto-start scanning (optional, or manual)
-                            // Let's trigger it automatically for better UX
+                            // Auto-start scanning
                             this.scanActivityAll();
                         } else {
                             this.error = data.message || 'Analysis failed';
@@ -201,7 +217,8 @@
                         this.loading = false;
                     }
                 },
-                async checkActivity(user) {
+
+                async checkActivity(user) { /* ... existing ... */
                     try {
                         const response = await fetch('/api/check_activity', {
                             method: 'POST',
@@ -215,7 +232,7 @@
                     }
                 },
 
-                async scanActivityAll() {
+                async scanActivityAll() { /* ... existing ... */
                     for (let user of this.users) {
                         if (user.is_active === null) {
                             await this.checkActivity(user);
@@ -226,6 +243,10 @@
                 async followUser(user) {
                     if (!this.cookies) {
                         alert('Please save cookies in "Authentication" first.');
+                        return;
+                    }
+                    if (this.dailyCount >= this.dailyLimit) {
+                        alert('Daily limit reached! Come back tomorrow.');
                         return;
                     }
                     if (user.followed) return;
@@ -243,6 +264,8 @@
 
                         if (data.status === 'success') {
                             user.followed = true;
+                            // Update count locally
+                            this.dailyCount++;
                         } else {
                             alert('Follow failed: ' + data.message);
                         }
