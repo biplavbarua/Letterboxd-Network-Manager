@@ -27,26 +27,25 @@ def analyze_target():
     logging.info(f"Received request to analyze: {target_user}")
     
     # 1. Scrape Followers (Phase 1)
-    # Limit to 1 page (25 users) for now to keep it fast for testing
-    followers = scraper.get_followers(target_user, max_pages=1)
+    # Increase limit to 2 pages (50 users) now that we check activity lazily
+    followers = scraper.get_followers(target_user, max_pages=2)
     
-    # 2. Filter Active Users (Phase 2)
-    # This loop is slow (1 request per user), so for the MVP demo, 
-    # we might just return them all and let the UI show "Check Status" 
-    # OR checking just the first 5 for speed.
-    # Let's check status for ALL of them but limit the list size to 10 for speed safety.
-    
-    mined_users = []
-    
-    # Process only top 10 for demo speed (to avoid 30x 2sec delays)
-    for user in followers[:10]:
-        user['is_active'] = scraper.profile_is_active(user['username'])
-        mined_users.append(user)
-    
+    # Return raw list without activity check (handled by frontend now)
     return jsonify({
         'status': 'success',
-        'mined_users': mined_users
+        'mined_users': followers
     })
+
+@app.route('/api/check_activity', methods=['POST'])
+def check_activity():
+    data = request.json
+    username = data.get('username')
+    
+    if not username:
+        return jsonify({'error': 'Username required'}), 400
+        
+    is_active = scraper.profile_is_active(username)
+    return jsonify({'username': username, 'is_active': is_active})
 
 @app.route('/api/follow', methods=['POST'])
 def perform_follow():

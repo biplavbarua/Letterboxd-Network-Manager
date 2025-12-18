@@ -104,21 +104,20 @@
 
                         <!-- Action -->
                         <div>
-                            <span x-show="user.is_active"
-                                class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-900 text-green-200 mb-2">
-                                Active
-                            </span>
-                            <span x-show="!user.is_active"
-                                class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-700 text-gray-400 mb-2">
-                                Inactive
-                            </span>
-                            <!-- Follow Button -->
-                            <button
-                                class="block w-full text-xs border border-gray-500 rounded px-2 py-1 transition-colors"
-                                :class="user.followed ? 'bg-green-900 border-green-700 text-green-200' : 'hover:bg-white hover:text-black'"
-                                @click="followUser(user)" :disabled="user.followed || !cookies"
-                                x-text="user.followed ? 'Following' : 'Follow'">
-                            </button>
+                            <div class="flex space-x-2">
+                                <span x-show="user.is_active === true"
+                                    class="px-2 py-1 bg-green-900 text-green-300 text-xs rounded">Active</span>
+                                <span x-show="user.is_active === false"
+                                    class="px-2 py-1 bg-red-900 text-red-300 text-xs rounded">Inactive</span>
+                                <span x-show="user.is_active === null" @click="checkActivity(user)"
+                                    class="px-2 py-1 bg-gray-700 text-gray-300 text-xs rounded cursor-pointer hover:bg-gray-600">Check
+                                    Activity</span>
+                                <button @click="followUser(user)" :disabled="user.followed || !user.is_active"
+                                    :class="{'bg-gray-600 cursor-not-allowed': user.followed || !user.is_active, 'bg-gray-800 hover:bg-gray-700': !user.followed && user.is_active}"
+                                    class="px-3 py-1 bg-gray-800 rounded border border-gray-700 text-sm hover:bg-gray-700 transition-colors">
+                                    <span x-text="user.followed ? 'Following' : 'Follow'"></span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </template>
@@ -130,9 +129,9 @@
     <script>
         function app() {
             return {
-                username: 'vilibazmio',
+                targetUser: 'vilibazmio',
                 loading: false,
-                results: [],
+                users: [],
                 message: '',
                 error: '',
                 cookie_input: '',
@@ -162,15 +161,74 @@
                     this.cookies_set = false;
                 },
 
+                async analyze() {
+                    if (!this.targetUser) return;
+
+                    this.loading = true;
+                    this.users = [];
+                    this.message = `Scanning ${this.targetUser}'s network... (This takes time due to safety delays)`;
+                    this.error = '';
+
+                    try {
+                        const response = await fetch('/api/analyze', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ username: this.targetUser })
+                        });
+                        const data = await response.json();
+
+                        if (data.status === 'success') {
+                            this.users = data.mined_users.map(u => ({
+                                ...u,
+                                is_active: null, // Unknown initially
+                                followed: false
+                            }));
+                            this.message = '';
+                            if (this.users.length === 0) {
+                                this.message = 'No active followers found (or scraper failed). Check server logs.';
+                            }
+                            // Auto-start scanning (optional, or manual)
+                            // Let's trigger it automatically for better UX
+                            this.scanActivityAll();
+                        } else {
+                            this.error = data.message || 'Analysis failed';
+                            this.message = '';
+                        }
+                    } catch (e) {
+                        this.error = 'Network error occurred.';
+                        this.message = '';
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                async checkActivity(user) {
+                    try {
+                        const response = await fetch('/api/check_activity', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ username: user.username })
+                        });
+                        const data = await response.json();
+                        user.is_active = data.is_active;
+                    } catch (e) {
+                        console.error(e);
+                    }
+                },
+
+                async scanActivityAll() {
+                    for (let user of this.users) {
+                        if (user.is_active === null) {
+                            await this.checkActivity(user);
+                        }
+                    }
+                },
+
                 async followUser(user) {
                     if (!this.cookies) {
                         alert('Please save cookies in "Authentication" first.');
                         return;
                     }
                     if (user.followed) return;
-
-                    const originalText = 'Follow';
-                    // We don't have a loading state for button but we can simulate
 
                     try {
                         const response = await fetch('/api/follow', {
@@ -184,7 +242,7 @@
                         const data = await response.json();
 
                         if (data.status === 'success') {
-                            user.followed = true; // Update UI state
+                            user.followed = true;
                         } else {
                             alert('Follow failed: ' + data.message);
                         }
@@ -192,41 +250,6 @@
                         alert('Network Error');
                     }
                 },
-
-                async analyze() {
-                    if (!this.username) return;
-
-                    this.loading = true;
-                    this.results = [];
-                    this.message = `Scanning ${this.username}'s network... (This takes time due to safety delays)`;
-                    this.error = '';
-
-                    try {
-                        const response = await fetch('/api/analyze', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ username: this.username })
-                        });
-
-                        const data = await response.json();
-
-                        if (data.status === 'success') {
-                            this.results = data.mined_users;
-                            this.message = '';
-                            if (this.results.length === 0) {
-                                this.message = 'No active followers found (or scraper failed). Check server logs.';
-                            }
-                        } else {
-                            this.error = data.message || 'Analysis failed';
-                            this.message = '';
-                        }
-                    } catch (e) {
-                        this.error = 'Network error occurred.';
-                        this.message = '';
-                    } finally {
-                        this.loading = false;
-                    }
-                }
             }
         }
     </script>
