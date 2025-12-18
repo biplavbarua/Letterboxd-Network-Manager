@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Letterboxd Network Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs" defer></script>
+    <style>
+        .letterboxd-green {
+            color: #00e054;
+        }
+
+        .letterboxd-bg {
+            background-color: #14181c;
+        }
+
+        .letterboxd-dark {
+            background-color: #2c3440;
+        }
+    </style>
+</head>
+
+<body class="bg-[#14181c] text-gray-200 font-sans min-h-screen">
+
+    <div class="container mx-auto px-4 py-8 max-w-4xl" x-data="app()">
+
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-10">
+            <h1 class="text-3xl font-bold tracking-tight">
+                <span class="text-[#00e054]">Letterboxd</span> Network Manager
+            </h1>
+            <div class="text-sm text-gray-400">
+                Safe. Local. Active.
+            </div>
+        </header>
+
+        <!-- Search Box -->
+        <div class="bg-[#2c3440] p-6 rounded-lg shadow-lg mb-8 border border-gray-700">
+            <label class="block text-sm font-medium mb-2">Target User (Source of Followers)</label>
+            <div class="flex gap-4">
+                <input type="text" x-model="username" @keydown.enter="analyze" placeholder="e.g. vilibazmio"
+                    class="flex-1 bg-[#14181c] border border-gray-600 rounded px-4 py-3 focus:outline-none focus:border-[#00e054] text-white">
+                <button @click="analyze" :disabled="loading"
+                    class="bg-[#00e054] text-black font-bold px-6 py-3 rounded hover:bg-green-500 disabled:opacity-50 transition-colors">
+                    <span x-show="!loading">Analyze Network</span>
+                    <span x-show="loading">Scanning...</span>
+                </button>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">
+                This will publicly scrape followers (Phase 1). No login required yet.
+            </p>
+        </div>
+
+        <!-- Authentication (Cookies) -->
+        <div class="bg-[#2c3440] p-6 rounded-lg shadow-lg mb-8 border border-gray-700">
+            <h3 class="font-bold mb-2 flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full" :class="cookies ? 'bg-green-500' : 'bg-red-500'"></span>
+                Authentication
+            </h3>
+            <div x-show="!cookies_set">
+                <p class="text-sm text-gray-400 mb-2">To follow users, paste your <code>letterboxd.com</code> cookies
+                    string here.</p>
+                <input type="password" x-model="cookie_input" placeholder="paste cookie string here..."
+                    class="w-full bg-[#14181c] border border-gray-600 rounded px-4 py-2 focus:outline-none focus:border-[#00e054] text-white text-xs mb-2">
+                <button @click="saveCookies" class="bg-gray-700 hover:bg-gray-600 text-white text-xs px-3 py-1 rounded">
+                    Save Session
+                </button>
+            </div>
+            <div x-show="cookies_set" class="flex justify-between items-center text-sm">
+                <span class="text-green-400">Session Cookie Saved via LocalStorage. Ready to Follow.</span>
+                <button @click="clearCookies" class="text-red-400 hover:text-red-300 text-xs underline">Clear</button>
+            </div>
+        </div>
+
+        <!-- Status Message -->
+        <div x-show="message" class="mb-4 p-4 rounded bg-blue-900 border border-blue-700 text-blue-200"
+            x-text="message"></div>
+        <div x-show="error" class="mb-4 p-4 rounded bg-red-900 border border-red-700 text-red-200" x-text="error"></div>
+
+        <!-- Results Grid -->
+        <div x-show="results.length > 0">
+            <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">
+                Found <span x-text="results.length" class="text-[#00e054]"></span> Potential Connections
+            </h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <template x-for="user in results" :key="user.username">
+                    <div
+                        class="bg-[#2c3440] p-4 rounded flex items-center justify-between border border-gray-700 hover:border-gray-500 transition-colors">
+                        <div class="flex items-center gap-4">
+                            <!-- Avatar -->
+                            <img :src="user.avatar_url || 'https://s.ltrbxd.com/static/img/avatar70.png'"
+                                class="w-12 h-12 rounded-full border border-gray-600">
+
+                            <!-- Info -->
+                            <div>
+                                <a :href="user.profile_url" target="_blank" class="font-bold hover:text-[#00e054] block"
+                                    x-text="user.display_name"></a>
+                                <span class="text-xs text-gray-400" x-text="'@' + user.username"></span>
+                            </div>
+                        </div>
+
+                        <!-- Action -->
+                        <div>
+                            <span x-show="user.is_active"
+                                class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-900 text-green-200 mb-2">
+                                Active
+                            </span>
+                            <span x-show="!user.is_active"
+                                class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-700 text-gray-400 mb-2">
+                                Inactive
+                            </span>
+                            <!-- Follow Button -->
+                            <button
+                                class="block w-full text-xs border border-gray-500 rounded px-2 py-1 transition-colors"
+                                :class="user.followed ? 'bg-green-900 border-green-700 text-green-200' : 'hover:bg-white hover:text-black'"
+                                @click="followUser(user)" :disabled="user.followed || !cookies"
+                                x-text="user.followed ? 'Following' : 'Follow'">
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        function app() {
+            return {
+                username: 'vilibazmio',
+                loading: false,
+                results: [],
+                message: '',
+                error: '',
+                cookie_input: '',
+                cookies: '',
+                cookies_set: false,
+
+                init() {
+                    const saved = localStorage.getItem('lb_cookies');
+                    if (saved) {
+                        this.cookies = saved;
+                        this.cookies_set = true;
+                    }
+                },
+
+                saveCookies() {
+                    if (this.cookie_input) {
+                        this.cookies = this.cookie_input;
+                        localStorage.setItem('lb_cookies', this.cookies);
+                        this.cookies_set = true;
+                        this.cookie_input = '';
+                    }
+                },
+
+                clearCookies() {
+                    this.cookies = '';
+                    localStorage.removeItem('lb_cookies');
+                    this.cookies_set = false;
+                },
+
+                async followUser(user) {
+                    if (!this.cookies) {
+                        alert('Please save cookies in "Authentication" first.');
+                        return;
+                    }
+                    if (user.followed) return;
+
+                    const originalText = 'Follow';
+                    // We don't have a loading state for button but we can simulate
+
+                    try {
+                        const response = await fetch('/api/follow', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                username: user.username,
+                                cookies: this.cookies
+                            })
+                        });
+                        const data = await response.json();
+
+                        if (data.status === 'success') {
+                            user.followed = true; // Update UI state
+                        } else {
+                            alert('Follow failed: ' + data.message);
+                        }
+                    } catch (e) {
+                        alert('Network Error');
+                    }
+                },
+
+                async analyze() {
+                    if (!this.username) return;
+
+                    this.loading = true;
+                    this.results = [];
+                    this.message = `Scanning ${this.username}'s network... (This takes time due to safety delays)`;
+                    this.error = '';
+
+                    try {
+                        const response = await fetch('/api/analyze', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ username: this.username })
+                        });
+
+                        const data = await response.json();
+
+                        if (data.status === 'success') {
+                            this.results = data.mined_users;
+                            this.message = '';
+                            if (this.results.length === 0) {
+                                this.message = 'No active followers found (or scraper failed). Check server logs.';
+                            }
+                        } else {
+                            this.error = data.message || 'Analysis failed';
+                            this.message = '';
+                        }
+                    } catch (e) {
+                        this.error = 'Network error occurred.';
+                        this.message = '';
+                    } finally {
+                        this.loading = false;
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+
+</html>
